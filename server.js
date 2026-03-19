@@ -78,6 +78,7 @@ const STATUS_MSGS = {
   in_repair: "Maskinen er nå under reparasjon.",
   testing: "Reparasjonen er utført og maskinen testes.",
   ready: "Maskinen din er ferdig og klar til henting!",
+  sent_to_customer: "Maskinen er sendt tilbake til deg.",
   delivered: "Takk for at du brukte oss!",
 };
 
