@@ -1,0 +1,19 @@
+{
+  "name": "battericentralen-service-api",
+  "version": "1.0.0",
+  "description": "Backend API for Battericentralen servicesystem",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.0",
+    "resend": "^4.0.0",
+    "twilio": "^5.3.0"
+  }
+}
