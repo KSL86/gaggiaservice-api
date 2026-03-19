@@ -26,8 +26,17 @@ CREATE TABLE IF NOT EXISTS customers (
   deleted_at  TIMESTAMPTZ  -- Soft delete for GDPR
 );
 
-CREATE INDEX idx_customers_email ON customers(email) WHERE deleted_at IS NULL;
-CREATE INDEX idx_customers_phone ON customers(phone) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_machines_customer ON machines(customer_id);
+CREATE INDEX IF NOT EXISTS idx_machines_serial ON machines(serial) WHERE serial IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_service_nr ON orders(service_nr);
+CREATE INDEX IF NOT EXISTS idx_status_history_order ON status_history(order_id);
+CREATE INDEX IF NOT EXISTS idx_used_parts_order ON used_parts(order_id);
+CREATE INDEX IF NOT EXISTS idx_work_logs_order ON work_logs(order_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_order ON notifications(order_id);
 
 -- Machines
 CREATE TABLE IF NOT EXISTS machines (
