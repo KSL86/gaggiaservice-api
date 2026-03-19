@@ -3,6 +3,8 @@
 // Express + PostgreSQL + JWT + bcrypt
 // Deploy on Render.com as Web Service
 // ═══════════════════════════════════════════════════════════
+const dns = require("dns");
+dns.setDefaultResultOrder("ipv4first");
 
 require("dotenv").config();
 const express = require("express");
