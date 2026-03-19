@@ -23,20 +23,11 @@ CREATE TABLE IF NOT EXISTS customers (
   city        VARCHAR(100),
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   updated_at  TIMESTAMPTZ DEFAULT NOW(),
-  deleted_at  TIMESTAMPTZ  -- Soft delete for GDPR
+  deleted_at  TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone) WHERE deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_machines_customer ON machines(customer_id);
-CREATE INDEX IF NOT EXISTS idx_machines_serial ON machines(serial) WHERE serial IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
-CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-CREATE INDEX IF NOT EXISTS idx_orders_service_nr ON orders(service_nr);
-CREATE INDEX IF NOT EXISTS idx_status_history_order ON status_history(order_id);
-CREATE INDEX IF NOT EXISTS idx_used_parts_order ON used_parts(order_id);
-CREATE INDEX IF NOT EXISTS idx_work_logs_order ON work_logs(order_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_order ON notifications(order_id);
 
 -- Machines
 CREATE TABLE IF NOT EXISTS machines (
@@ -49,8 +40,8 @@ CREATE TABLE IF NOT EXISTS machines (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_machines_customer ON machines(customer_id);
-CREATE INDEX idx_machines_serial ON machines(serial) WHERE serial IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_machines_customer ON machines(customer_id);
+CREATE INDEX IF NOT EXISTS idx_machines_serial ON machines(serial) WHERE serial IS NOT NULL;
 
 -- Service orders
 CREATE TABLE IF NOT EXISTS orders (
@@ -60,26 +51,26 @@ CREATE TABLE IF NOT EXISTS orders (
   machine_id      UUID NOT NULL REFERENCES machines(id),
   status          VARCHAR(30) NOT NULL DEFAULT 'registered',
   description     TEXT,
-  delivery_method VARCHAR(20), -- post, dropoff, partner
+  delivery_method VARCHAR(20),
   fault_codes     TEXT[] DEFAULT '{}',
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_orders_customer ON orders(customer_id);
-CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_service_nr ON orders(service_nr);
+CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_service_nr ON orders(service_nr);
 
 -- Status history
 CREATE TABLE IF NOT EXISTS status_history (
-  id        SERIAL PRIMARY KEY,
-  order_id  UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  status    VARCHAR(30) NOT NULL,
-  note      TEXT,
+  id         SERIAL PRIMARY KEY,
+  order_id   UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  status     VARCHAR(30) NOT NULL,
+  note       TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_status_history_order ON status_history(order_id);
+CREATE INDEX IF NOT EXISTS idx_status_history_order ON status_history(order_id);
 
 -- Used parts per order
 CREATE TABLE IF NOT EXISTS used_parts (
@@ -92,7 +83,7 @@ CREATE TABLE IF NOT EXISTS used_parts (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_used_parts_order ON used_parts(order_id);
+CREATE INDEX IF NOT EXISTS idx_used_parts_order ON used_parts(order_id);
 
 -- Work logs
 CREATE TABLE IF NOT EXISTS work_logs (
@@ -104,14 +95,14 @@ CREATE TABLE IF NOT EXISTS work_logs (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_work_logs_order ON work_logs(order_id);
+CREATE INDEX IF NOT EXISTS idx_work_logs_order ON work_logs(order_id);
 
 -- Notifications (audit trail)
 CREATE TABLE IF NOT EXISTS notifications (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id    UUID REFERENCES orders(id),
   customer_id UUID REFERENCES customers(id),
-  type        VARCHAR(10) NOT NULL, -- sms, email
+  type        VARCHAR(10) NOT NULL,
   recipient   VARCHAR(200) NOT NULL,
   subject     VARCHAR(500),
   message     TEXT NOT NULL,
@@ -121,29 +112,24 @@ CREATE TABLE IF NOT EXISTS notifications (
   error       TEXT
 );
 
-CREATE INDEX idx_notifications_order ON notifications(order_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_order ON notifications(order_id);
 
 -- Stock levels (keyed by part number)
 CREATE TABLE IF NOT EXISTS stock (
-  part_nr   VARCHAR(50) PRIMARY KEY,
-  qty       INTEGER DEFAULT 0,
+  part_nr    VARCHAR(50) PRIMARY KEY,
+  qty        INTEGER DEFAULT 0,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- GDPR audit log
 CREATE TABLE IF NOT EXISTS gdpr_log (
   id         SERIAL PRIMARY KEY,
-  action     VARCHAR(50) NOT NULL, -- data_export, data_delete, consent_given, consent_withdrawn
-  subject_id UUID, -- customer id
+  action     VARCHAR(50) NOT NULL,
+  subject_id UUID,
   admin_id   INTEGER REFERENCES admin_users(id),
   details    TEXT,
   ip_address VARCHAR(50),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ═══════════════════════════════════════════════════
--- Initial admin user: admin / battericentralen2025
--- Hash generated with bcrypt (10 rounds)
--- Endre passord via API etter første innlogging!
--- ═══════════════════════════════════════════════════
--- INSERT will be done by server on first startup
+-- Initial admin user is inserted by server on first startup
