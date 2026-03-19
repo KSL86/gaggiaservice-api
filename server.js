@@ -60,19 +60,77 @@ function auth(req, res, next) {
 // ═══════════════════════════════════════
 // INIT — Create tables + default admin
 // ═══════════════════════════════════════
-async function initDB() {
-  const fs = require("fs");
-  const schema = fs.readFileSync(__dirname + "/schema.sql", "utf8");
-  await pool.query(schema);
+async function sendNotification(cust, order, status, mach) {
+  const msg = `Hei ${cust.name}!\n\n${STATUS_MSGS[status] || ""}\n\nMaskin: ${mach.brand} ${mach.model}\nServicenr: ${order.service_nr}\n\nMvh Battericentralen\nØstre Totenvei 128, Gjøvik\nTlf: 611 72 972`;
+  const type = cust.email ? "email" : "sms";
+  const to = cust.email || cust.phone;
+  const subject = status === "ready" ? `Maskinen er klar! (${order.service_nr})` : `Status – ${order.service_nr}`;
 
-  // Create default admin if none exists
-  const { rows } = await pool.query("SELECT id FROM admin_users LIMIT 1");
-  if (rows.length === 0) {
-    const hash = await bcrypt.hash("battericentralen2025", SALT_ROUNDS);
-    await pool.query("INSERT INTO admin_users (username, password_hash, name) VALUES ($1, $2, $3)", ["admin", hash, "Administrator"]);
-    console.log("👤 Default admin created: admin / battericentralen2025");
+  // Log to database and keep inserted id
+  const inserted = await pool.query(
+    `INSERT INTO notifications (order_id, customer_id, type, recipient, subject, message, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     RETURNING id`,
+    [order.id, cust.id, type, to, subject, msg, status]
+  );
+
+  const notificationId = inserted.rows[0].id;
+
+  try {
+    if (type === "sms" && twilio) {
+      let phone = to.replace(/\s/g, "");
+      if (!phone.startsWith("+")) phone = "+47" + phone;
+
+      await twilio.messages.create({
+        body: msg,
+        from: TWILIO_FROM,
+        to: phone
+      });
+
+      await pool.query(
+        "UPDATE notifications SET delivered=true, error=NULL WHERE id=$1",
+        [notificationId]
+      );
+
+      console.log(`📱 SMS → ${phone}`);
+    } else if (type === "email" && resend) {
+      await resend.emails.send({
+        from: EMAIL_FROM,
+        to: [to],
+        subject,
+        text: msg,
+        html: `<div style="font-family:sans-serif;max-width:500px;margin:0 auto;padding:20px">
+          <div style="border-bottom:2px solid #1D4ED8;padding-bottom:10px;margin-bottom:16px">
+            <strong style="font-size:16px">🔋 Battericentralen</strong>
+            <span style="font-size:11px;color:#888;margin-left:8px">Service & Reparasjon</span>
+          </div>
+          <div style="white-space:pre-line;font-size:14px;line-height:1.6;color:#333">${msg.replace(/\n/g, "<br>")}</div>
+          <div style="margin-top:24px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#999">
+            Battericentralen AS · Østre Totenvei 128, 2816 Gjøvik
+          </div>
+        </div>`,
+      });
+
+      await pool.query(
+        "UPDATE notifications SET delivered=true, error=NULL WHERE id=$1",
+        [notificationId]
+      );
+
+      console.log(`✉️ E-post → ${to}`);
+    } else {
+      await pool.query(
+        "UPDATE notifications SET error=$1 WHERE id=$2",
+        ["Ingen aktiv leverandør konfigurert for varsling", notificationId]
+      );
+    }
+  } catch (err) {
+    console.error(`❌ ${type} feil:`, err.message);
+
+    await pool.query(
+      "UPDATE notifications SET delivered=false, error=$1 WHERE id=$2",
+      [err.message, notificationId]
+    );
   }
-  console.log("🗄️  Database initialized");
 }
 
 // ═══════════════════════════════════════
