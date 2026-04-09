@@ -54,12 +54,17 @@ CREATE TABLE IF NOT EXISTS orders (
   delivery_method VARCHAR(20),
   fault_codes     TEXT[] DEFAULT '{}',
   created_at      TIMESTAMPTZ DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ DEFAULT NOW()
+  updated_at      TIMESTAMPTZ DEFAULT NOW(),
+  deleted_at      TIMESTAMPTZ
 );
+
+ALTER TABLE IF EXISTS orders
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_service_nr ON orders(service_nr);
+CREATE INDEX IF NOT EXISTS idx_orders_deleted_at ON orders(deleted_at);
 
 -- Status history
 CREATE TABLE IF NOT EXISTS status_history (
