@@ -66,8 +66,64 @@ const genServiceNr = () =>
   Date.now().toString(36).slice(-4).toUpperCase() +
   crypto.randomBytes(2).toString("hex").toUpperCase();
 
-function sendError(res, status, msg) {
-  return res.status(status).json({ error: msg });
+function sendError(res, status, msg, extra = {}) {
+  return res.status(status).json({ error: msg, ...extra });
+}
+
+function normalizeText(v) {
+  return (v || "").toString().trim().replace(/\s+/g, " ");
+}
+
+function normalizeDescription(v) {
+  return normalizeText(v).toLowerCase();
+}
+
+async function findRecentAdminDuplicate(client, customerId, machineId, description) {
+  const { rows } = await client.query(
+    `SELECT id, service_nr, created_at
+       FROM orders
+      WHERE customer_id = $1
+        AND machine_id = $2
+        AND deleted_at IS NULL
+        AND created_at >= NOW() - INTERVAL '5 minutes'
+      ORDER BY created_at DESC
+      LIMIT 10`,
+    [customerId, machineId]
+  );
+
+  const normalized = normalizeDescription(description);
+  return rows.find((row) => normalizeDescription(row.description) === normalized) || null;
+}
+
+async function findRecentPortalDuplicate(client, payload) {
+  const { name, phone, email, model_code, serial, description } = payload;
+  const { rows } = await client.query(
+    `SELECT o.id, o.service_nr, o.created_at, o.description
+       FROM orders o
+       JOIN customers c ON c.id = o.customer_id
+       JOIN machines m ON m.id = o.machine_id
+      WHERE o.deleted_at IS NULL
+        AND o.created_at >= NOW() - INTERVAL '10 minutes'
+        AND LOWER(COALESCE(c.name, '')) = LOWER($1)
+        AND LOWER(COALESCE(m.model_code, '')) = LOWER($2)
+        AND LOWER(COALESCE(m.serial, '')) = LOWER($3)
+        AND (
+          ($4 <> '' AND regexp_replace(COALESCE(c.phone, ''), '\\s+', '', 'g') = regexp_replace($4, '\\s+', '', 'g'))
+          OR ($5 <> '' AND LOWER(COALESCE(c.email, '')) = LOWER($5))
+        )
+      ORDER BY o.created_at DESC
+      LIMIT 10`,
+    [
+      normalizeText(name),
+      normalizeText(model_code),
+      normalizeText(serial),
+      normalizeText(phone),
+      normalizeText(email),
+    ]
+  );
+
+  const normalized = normalizeDescription(description);
+  return rows.find((row) => normalizeDescription(row.description) === normalized) || null;
 }
 
 const STATUS_MSGS = {
@@ -362,6 +418,7 @@ app.get("/api/orders", auth, async (req, res) => {
      JOIN customers c ON o.customer_id = c.id
      JOIN machines m ON o.machine_id = m.id
      WHERE c.deleted_at IS NULL
+       AND o.deleted_at IS NULL
      ORDER BY o.created_at DESC`
   );
 
@@ -401,6 +458,17 @@ app.post("/api/orders", auth, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    const duplicate = await findRecentAdminDuplicate(client, customer_id, machine_id, description);
+    if (duplicate) {
+      await client.query("ROLLBACK");
+      return sendError(
+        res,
+        409,
+        `Det finnes allerede en nylig opprettet serviceordre for denne maskinen (${duplicate.service_nr}). Oppdater den eksisterende ordren i stedet.`,
+        { duplicate_order_id: duplicate.id, duplicate_service_nr: duplicate.service_nr }
+      );
+    }
+
     const { rows } = await client.query(
       `INSERT INTO orders (service_nr, customer_id, machine_id, description, delivery_method)
        VALUES ($1,$2,$3,$4,$5)
@@ -426,6 +494,28 @@ app.post("/api/orders", auth, async (req, res) => {
   } finally {
     client.release();
   }
+});
+
+app.delete("/api/orders/:id", auth, async (req, res) => {
+  const { rows } = await pool.query(
+    `UPDATE orders
+        SET deleted_at = NOW(), updated_at = NOW()
+      WHERE id = $1
+        AND deleted_at IS NULL
+      RETURNING id, service_nr`,
+    [req.params.id]
+  );
+
+  if (!rows.length) {
+    return sendError(res, 404, "Ordre ikke funnet");
+  }
+
+  await pool.query(
+    "INSERT INTO gdpr_log (action, subject_id, admin_id, details) VALUES ($1,$2,$3,$4)",
+    ["order_delete", rows[0].id, req.admin.id, `Serviceordre ${rows[0].service_nr} soft-deleted by admin`]
+  );
+
+  res.json({ ok: true, id: rows[0].id, service_nr: rows[0].service_nr });
 });
 
 app.put("/api/orders/:id/status", auth, async (req, res) => {
@@ -562,7 +652,8 @@ app.get("/api/portal/:serviceNr", async (req, res) => {
             m.brand as machine_brand, m.model as machine_model, m.serial as machine_serial, m.model_code as machine_model_code
      FROM orders o
      JOIN machines m ON o.machine_id = m.id
-     WHERE LOWER(o.service_nr) = LOWER($1)`,
+     WHERE LOWER(o.service_nr) = LOWER($1)
+       AND o.deleted_at IS NULL`,
     [req.params.serviceNr]
   );
 
@@ -619,6 +710,25 @@ app.post("/api/portal/register", async (req, res) => {
 
   try {
     await client.query("BEGIN");
+
+    const duplicate = await findRecentPortalDuplicate(client, {
+      name,
+      phone,
+      email,
+      model_code,
+      serial,
+      description: fullDesc,
+    });
+
+    if (duplicate) {
+      await client.query("ROLLBACK");
+      return sendError(
+        res,
+        409,
+        `Denne registreringen ser ut til å være sendt inn allerede nylig (${duplicate.service_nr}). Vent litt og bruk eksisterende serviceordre hvis den finnes.`,
+        { duplicate_order_id: duplicate.id, duplicate_service_nr: duplicate.service_nr }
+      );
+    }
 
     const cust = (await client.query(
       `INSERT INTO customers (name, phone, email, address, zip, city)
