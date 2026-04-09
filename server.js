@@ -345,14 +345,22 @@ app.post("/api/customers", auth, async (req, res) => {
 });
 
 app.put("/api/customers/:id", auth, async (req, res) => {
-  const { name, phone, email } = req.body;
+  const { name, phone, email, address, zip, city } = req.body;
 
   const { rows } = await pool.query(
     `UPDATE customers
-     SET name=$1, phone=$2, email=$3, updated_at=NOW()
-     WHERE id=$4 AND deleted_at IS NULL
+     SET name=$1, phone=$2, email=$3, address=$4, zip=$5, city=$6, updated_at=NOW()
+     WHERE id=$7 AND deleted_at IS NULL
      RETURNING *`,
-    [name, phone || null, email || null, req.params.id]
+    [
+      name,
+      phone || null,
+      email || null,
+      address || null,
+      zip || null,
+      city || null,
+      req.params.id
+    ]
   );
 
   if (!rows.length) return sendError(res, 404, "Kunde ikke funnet");
